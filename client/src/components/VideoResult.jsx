@@ -22,7 +22,9 @@ export default function VideoResult({ info, onDownload, onSave, onOpenPlaylist, 
   return (
     <article className="overflow-hidden rounded-2xl border border-line bg-surface shadow-card">
       <div className="grid gap-0 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-        <Thumbnail src={info.thumbnail} duration={info.duration} eager className="aspect-video md:aspect-auto md:h-full md:min-h-56" />
+        <div className="md:p-6 md:pr-0">
+          <Thumbnail src={info.thumbnail} fallback={info.thumbnailFallback} duration={info.duration} eager className="aspect-video md:rounded-xl" />
+        </div>
 
         <div className="flex flex-col gap-5 p-5 sm:p-6">
           <div>
@@ -51,7 +53,7 @@ export default function VideoResult({ info, onDownload, onSave, onOpenPlaylist, 
                 type="button"
                 disabled={!selected || inProgress}
                 onClick={() =>
-                  done ? onSave(existing.key) : onDownload({ url: info.url, title: info.title, thumbnail: info.thumbnail, quality: format })
+                  done ? onSave(existing.key) : onDownload({ url: info.url, title: info.title, thumbnail: info.thumbnailFallback || info.thumbnail, quality: format })
                 }
                 className="flex items-center justify-center gap-2 rounded-xl bg-fg px-5 py-3 text-sm font-semibold text-bg transition-opacity hover:opacity-90 disabled:opacity-50"
               >

@@ -2,20 +2,29 @@ import { Film } from "lucide-react";
 import { useState } from "react";
 import { formatDuration } from "../lib/format";
 
-export default function Thumbnail({ src, duration, className = "", eager = false }) {
-  const [failed, setFailed] = useState(false);
+export default function Thumbnail({ src, fallback, duration, className = "", eager = false }) {
+  // Try src, then fallback (e.g. HD image that may not exist -> sized one that does).
+  const sources = [src, fallback].filter(Boolean);
+  const [attempt, setAttempt] = useState(0);
+  const current = sources[attempt];
   const time = formatDuration(duration);
 
   return (
     <div className={`relative overflow-hidden bg-subtle ${className}`}>
-      {src && !failed ? (
+      {current ? (
         <img
-          src={src}
+          key={current}
+          src={current}
           alt=""
           loading={eager ? "eager" : "lazy"}
           decoding="async"
           referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
+          onError={() => setAttempt((a) => a + 1)}
+          // YouTube answers a missing size with a 404 whose body is a 120x90
+          // grey placeholder; browsers render it and fire onload, not onerror.
+          onLoad={(e) => {
+            if (attempt < sources.length - 1 && e.currentTarget.naturalWidth <= 120) setAttempt((a) => a + 1);
+          }}
           className="size-full object-cover"
         />
       ) : (
