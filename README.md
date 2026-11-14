@@ -32,12 +32,13 @@ Paste a link, pick a quality, done. Self-hosted, fast, and built to serve many p
 |---|---|
 | 🎬 **Any quality** | 144p up to 4K, delivered as MP4 (H.264 + AAC where available) that plays on every device |
 | 🎧 **Audio only** | MP3 for compatibility, or M4A copied straight from the source without re-encoding |
+| 🌐 **1,000+ sites** | YouTube, TikTok, X, Twitch, SoundCloud, Dailymotion, Bilibili, archive.org and every other site yt-dlp supports, plus direct media links |
 | 📚 **Playlists and channels** | Select the videos you want, choose one quality, and download them as a batch |
 | 📥 **Downloads panel** | Live progress, queue position, speed and time left, with cancel, retry and save; survives a page reload |
 | ⚡ **Paste and go** | Pasting a link fetches it immediately, and each format shows its estimated file size |
 | 🌗 **Light and dark** | Follows your system theme or lets you choose; works on mobile; no trackers or external fonts |
 | 🧱 **Built for concurrency** | Shared caches and shared downloads, bounded queues and per-user limits |
-| 🔒 **Secure by default** | SSRF-safe URL handling, no shell execution, sanitised errors, rate limiting, sandboxed deployment |
+| 🔒 **Secure by default** | Network-level SSRF protection, no shell execution, sanitised errors, rate limiting, sandboxed deployment |
 
 ## Screenshots
 
@@ -91,6 +92,9 @@ flowchart LR
   I --> Y[[yt-dlp]]
   J --> Y
   Y --> F[[ffmpeg]]
+  Y -. every connection .-> E{{Egress proxy<br/>blocks private IPs}}
+  F -. every connection .-> E
+  E --> W((Internet))
   J --> D[(Temporary files<br/>TTL cleanup)]
 ```
 
@@ -120,7 +124,8 @@ The API never downloads the same thing twice at the same time. Each `(video, qua
 ### Security
 
 - **No shell, ever.** Arguments are passed as an array with a `--` terminator, `--ignore-config` is always set, and quality values come from a strict whitelist.
-- **SSRF protection.** Only http(s) on the default ports is accepted. Private, link-local and cloud-metadata addresses are rejected, including after DNS resolution and in IPv4-mapped IPv6 form. yt-dlp's `generic` extractor is disabled, and `ALLOWED_HOSTS` can restrict sites further.
+- **SSRF protection at the network level.** Checking the pasted URL isn't enough: pages redirect, embed players and point at manifests. So every connection yt-dlp and ffmpeg make goes through a built-in egress proxy. It resolves DNS itself, refuses private, loopback, link-local, LAN and cloud-metadata addresses (including IPv6 and IPv4-mapped forms), allows only ports 80/443, and connects to the exact IP it vetted, which defeats DNS rebinding. The pasted URL is also checked up front, and `ALLOWED_HOSTS` can restrict sites further.
+- **Safe media handling.** Only formats yt-dlp downloads itself are used (no RTMP/RTSP/MMS handed to external tools), HLS is fetched natively rather than by ffmpeg, and ffmpeg may only open plain media containers when merging or converting.
 - **Nothing leaks.** yt-dlp output and server paths are mapped to friendly messages, and child processes get a minimal environment.
 - **Abuse limits.** Per-IP token-bucket rate limits, a cap on active downloads per user, an 8 KB request body limit, a strict CORS allow-list, CSP and HSTS.
 - **Resource safety.** Hard timeouts with process-group kills (ffmpeg included), a free-disk-space guard, a maximum file size, TTL cleanup, and removal of orphaned files on boot.
@@ -177,6 +182,8 @@ The API is configured through environment variables. Every option is documented 
 | `FILE_TTL_MS` | `1200000` | How long finished files are kept and shared |
 | `MIN_FREE_DISK_MB` / `MAX_FILESIZE` | `2048` / `4G` | Disk safety limits |
 | `ALLOWED_HOSTS` | any | Restrict to sites by suffix, e.g. `youtube.com,vimeo.com` |
+| `ENABLE_GENERIC_EXTRACTOR` | `true` | Direct media links and embedded players; only active with the egress proxy |
+| `EGRESS_PROXY` / `EGRESS_ALLOWED_PORTS` | `true` / `80,443` | Network-level SSRF protection for yt-dlp and ffmpeg |
 | `YTDLP_COOKIES_FILE` | — | cookies.txt for when a site demands sign-in |
 
 ## API
