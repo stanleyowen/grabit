@@ -76,6 +76,20 @@ function pickThumbnail(info, targetWidth) {
   return httpsOnly(pick?.url) || httpsOnly(info.thumbnail);
 }
 
+/**
+ * [primary, fallback] for large previews. yt-dlp lists YouTube's 1280x720
+ * hq720 image without dimensions and without checking it exists (many videos
+ * lack it), so the client falls back to a sized image that always exists.
+ * 4:3 fallbacks are letterboxed 16:9 frames; the UI shows them in a 16:9 box
+ * with object-cover, which crops the bars away exactly.
+ */
+function pickHeroThumbnails(info) {
+  const safe = pickThumbnail(info, 640);
+  const hd = (info.thumbnails || []).find((t) => /\/hq720\.jpg(\?|$)/.test(t.url || ""));
+  const primary = httpsOnly(hd?.url) || safe;
+  return [primary, primary !== safe ? safe : null];
+}
+
 const LABELS = { 4320: "8K", 2160: "4K", 1440: "1440p", 1080: "1080p", 720: "720p" };
 
 function toVideo(info, target) {
@@ -119,6 +133,7 @@ function toVideo(info, target) {
     });
 
   const duration = num(info.duration);
+  const [thumbnail, thumbnailFallback] = pickHeroThumbnails(info);
   options.push(
     { id: "m4a", kind: "audio", label: "M4A", detail: "Original quality", size: audioSize },
     { id: "mp3", kind: "audio", label: "MP3", detail: "Best compatibility", size: duration ? Math.round(duration * 40_000) : null },
@@ -133,7 +148,8 @@ function toVideo(info, target) {
     duration,
     viewCount: num(info.view_count),
     uploadDate: typeof info.upload_date === "string" ? info.upload_date : null,
-    thumbnail: pickThumbnail(info, 640),
+    thumbnail,
+    thumbnailFallback,
     isLive: Boolean(info.is_live),
     formats: options,
   };
