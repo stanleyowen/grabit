@@ -36,7 +36,7 @@ REL="$HOME/server/.youtube-downloader-release"
 BIN="$HOME/.local/opt/video-downloader/bin"
 DATA="$HOME/.local/share/video-downloader"
 CONF="$HOME/.config/video-downloader"
-NAME=youtube-dl
+NAME=grabit
 
 node -e 'process.exit(+process.versions.node.split(".")[0] >= 22 ? 0 : 1)' || { echo "need Node >= 22" >&2; exit 1; }
 mkdir -p "$BIN" "$DATA/downloads" "$CONF"
@@ -130,4 +130,4 @@ LINE="17 4 * * * YTDLP_DEST=$BIN/yt-dlp bash $APP/deploy/update-ytdlp.sh >> $DAT
 crontab -l | grep -q 'update-ytdlp.sh' || { echo "failed to install cron entry" >&2; exit 1; }
 REMOTE
 
-echo "==> Deployed. Logs: ssh $HOST 'pm2 logs youtube-dl'"
+echo "==> Deployed. Logs: ssh $HOST 'pm2 logs grabit'"

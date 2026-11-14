@@ -48,7 +48,7 @@ if (process.env.VD_DOWNLOADS_DIR) env.DOWNLOADS_DIR = process.env.VD_DOWNLOADS_D
 module.exports = {
   apps: [
     {
-      name: process.env.VD_APP_NAME || "youtube-dl",
+      name: process.env.VD_APP_NAME || "grabit",
       cwd: __dirname,
       script: "src/index.js",
       interpreter: NODE,
