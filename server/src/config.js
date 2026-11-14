@@ -22,6 +22,14 @@ function list(name) {
     .filter(Boolean);
 }
 
+function bool(name, fallback) {
+  const raw = (env[name] || "").trim().toLowerCase();
+  if (raw === "") return fallback;
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+  throw new Error(`Invalid ${name}=${env[name]} (expected true/false)`);
+}
+
 function trustProxy(raw) {
   if (raw === undefined || raw === "") return "loopback";
   if (raw === "false") return false;
@@ -51,10 +59,23 @@ export const config = Object.freeze({
     cookiesFile: env.YTDLP_COOKIES_FILE || "",
     jsRuntime: env.YTDLP_JS_RUNTIME || "",
     userAgent: env.YTDLP_USER_AGENT || "",
-    // Hosts are matched by suffix. Empty = any public host (generic extractor stays disabled).
+    // Hosts are matched by suffix. Empty = any public host.
     allowedHosts: list("ALLOWED_HOSTS"),
+    // Direct media links and pages with embedded players. Only takes effect
+    // while the egress proxy is enabled.
+    generic: bool("ENABLE_GENERIC_EXTRACTOR", true),
     maxFileSize: env.MAX_FILESIZE || "4G",
     concurrentFragments: int("YTDLP_CONCURRENT_FRAGMENTS", 4, { min: 1, max: 16 }),
+  },
+
+  // Local forward proxy that blocks private/internal destinations for every
+  // connection yt-dlp and ffmpeg make (see lib/egressProxy.js).
+  egress: {
+    enabled: bool("EGRESS_PROXY", true),
+    allowedPorts: (env.EGRESS_ALLOWED_PORTS || "80,443")
+      .split(",")
+      .map((p) => Number.parseInt(p.trim(), 10))
+      .filter((p) => p > 0 && p < 65536),
   },
 
   info: {

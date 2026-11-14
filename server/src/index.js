@@ -1,11 +1,16 @@
 import { createApp } from "./app.js";
 import { config } from "./config.js";
 import { log } from "./lib/logger.js";
-import { YTDLP_BIN, ytdlpVersion } from "./lib/ytdlp.js";
+import { startEgressProxy } from "./lib/egressProxy.js";
+import { YTDLP_BIN, genericEnabled, setEgressProxy, ytdlpVersion } from "./lib/ytdlp.js";
 import { limiters } from "./routes/api.js";
 import { initJobs, shutdownJobs } from "./services/jobs.js";
 
 await initJobs();
+
+const egress = config.egress.enabled ? await startEgressProxy({ allowedPorts: config.egress.allowedPorts }) : null;
+if (egress) setEgressProxy(egress.url);
+else log.warn("egress proxy disabled: generic extractor is off and only the initial URL is SSRF-checked");
 
 const app = createApp();
 const server = app.listen(config.port, config.host, () => {
@@ -17,6 +22,9 @@ const server = app.listen(config.port, config.host, () => {
     downloadConcurrency: config.jobs.concurrency,
     infoConcurrency: config.info.concurrency,
     trustProxy: config.trustProxy,
+    egressProxy: Boolean(egress),
+    egressPorts: config.egress.allowedPorts,
+    genericExtractor: genericEnabled(),
   });
 });
 
@@ -35,6 +43,7 @@ async function shutdown(signal) {
   server.closeIdleConnections();
   Object.values(limiters).forEach((l) => l.close());
   await shutdownJobs().catch((e) => log.error("shutdown cleanup failed", { error: e.message }));
+  await egress?.close();
   clearTimeout(force);
   process.exit(0);
 }

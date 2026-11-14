@@ -34,11 +34,26 @@ export function ytdlpVersion() {
   }
 }
 
+// URL of the local egress proxy (lib/egressProxy.js), set at startup.
+let egressProxyUrl = null;
+export function setEgressProxy(url) {
+  egressProxyUrl = url;
+}
+export const genericEnabled = () => config.ytdlp.generic && Boolean(egressProxyUrl);
+
 // Only pass through what yt-dlp needs; never leak the server's secrets to the child.
 function childEnv() {
-  const keep = ["PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "XDG_CACHE_HOME", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"];
+  const keep = ["PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "XDG_CACHE_HOME", "SSL_CERT_FILE", "SSL_CERT_DIR"];
   const env = { PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8" };
   for (const k of keep) if (process.env[k]) env[k] = process.env[k];
+  if (egressProxyUrl) {
+    // Every HTTP(S) request from yt-dlp and ffmpeg goes through the egress
+    // proxy. Passed via env (not argv) so the secret isn't visible in `ps`.
+    // NO_PROXY is deliberately not passed: nothing may bypass the proxy.
+    for (const k of ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]) env[k] = egressProxyUrl;
+  } else {
+    for (const k of ["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"]) if (process.env[k]) env[k] = process.env[k];
+  }
   return env;
 }
 
@@ -47,8 +62,10 @@ function baseArgs() {
     "--ignore-config", // never let a stray config file add options like --exec
     "--no-color",
     "--no-warnings",
-    // The generic extractor fetches arbitrary pages and is the main SSRF vector.
-    "--use-extractors", "default,-generic",
+    // The generic extractor (direct media links, pages with embedded players)
+    // fetches arbitrary URLs, so it is only enabled while the egress proxy is
+    // enforcing the private-address block at the network level.
+    "--use-extractors", genericEnabled() ? "default" : "default,-generic",
     "--socket-timeout", "20",
     "--retries", "3",
     "--fragment-retries", "3",
