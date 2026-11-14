@@ -14,7 +14,7 @@ import { api } from "./lib/api";
 const FEATURES = [
   { Icon: MonitorPlay, title: "Up to 4K", text: "MP4 that plays on every device." },
   { Icon: AudioLines, title: "Audio only", text: "MP3, or lossless-copy M4A." },
-  { Icon: ListVideo, title: "Whole playlists", text: "Pick the videos you want." },
+  { Icon: ListVideo, title: "1,000+ sites", text: "Videos, playlists and direct links." },
 ];
 
 export default function App() {
@@ -68,7 +68,7 @@ export default function App() {
             <div className="mb-8 text-center">
               <h1 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Save any video for offline.</h1>
               <p className="mx-auto mt-3 max-w-md text-[15px] text-pretty text-muted">
-                Paste a link to a video, Short or playlist. Pick a quality. That's it.
+                Paste a link from YouTube, TikTok, X, Twitch, SoundCloud or 1,000+ other sites. Pick a quality. That's it.
               </p>
             </div>
           )}

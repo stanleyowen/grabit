@@ -36,7 +36,7 @@ export function formatDate(yyyymmdd) {
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-export const QUALITY_LABEL = (q) => (q === "mp3" ? "MP3" : q === "m4a" ? "M4A" : q === "4320p" ? "Best" : q === "2160p" ? "4K" : q);
+export const QUALITY_LABEL = (q) => (q === "mp3" ? "MP3" : q === "m4a" ? "M4A" : q === "4320p" || q === "best" ? "Best" : q === "2160p" ? "4K" : q);
 
 export const randomId = () =>
   globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;

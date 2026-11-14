@@ -62,7 +62,7 @@ export default function UrlForm({ onSubmit, onCancel, loading }) {
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onPaste={onPaste}
-          placeholder="Paste a video or playlist link"
+          placeholder="Paste a video, audio or playlist link"
           className="min-w-0 flex-1 bg-transparent py-2.5 text-base outline-none placeholder:text-muted/80 focus-visible:outline-none"
           autoFocus
         />
