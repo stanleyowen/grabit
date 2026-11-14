@@ -1,77 +1,99 @@
-# YouTube Downloader
+# Video Downloader
 
-A simple, fast YouTube downloader with React frontend and Node.js backend.
+Download videos, audio and playlists in any quality. React frontend, Node.js API backed by [yt-dlp](https://github.com/yt-dlp/yt-dlp), built to serve many users at once from a single Ubuntu box.
 
-## Features
+## Architecture
 
-- Download single videos in multiple qualities (360p to 1080p+)
-- Download playlists with batch selection
-- MP3 audio extraction
-- Dark/light mode
-- Clean, minimal UI
+```
+Browser ──► Netlify (static site) ──/api──► nginx (TLS, rate limit) ──► Node API (127.0.0.1:3003)
+   ▲                                          │                             │
+   └──────── file bytes via X-Accel-Redirect ─┘                             ├─ info service: LRU cache + in-flight de-dupe
+                                                                            ├─ job manager: shared tasks, FIFO queue, per-client caps
+                                                                            └─ yt-dlp / ffmpeg child processes (timeouts, process-group kill)
+```
 
-## Prerequisites
+**Why it scales**
 
-- Node.js (v18+)
-- yt-dlp installed on your system
+| Technique | Effect |
+|---|---|
+| Metadata cache (15 min LRU) + in-flight coalescing | 50 people pasting the same link at once → 1 yt-dlp call. Cached lookups ~1 ms. |
+| Shared download tasks | Same video + quality requested by many users → downloaded once, file shared for 20 min. |
+| One yt-dlp process per download | The old version spawned yt-dlp twice per download (once just to read the title). |
+| Bounded concurrency + bounded queues | Spikes get a clean `503 Retry-After` instead of exhausting CPU/RAM. |
+| Batched status polling | The UI polls every active job in **one** request, backs off when idle/hidden. |
+| H.264 + AAC preferred, M4A remux | Files play everywhere; M4A needs zero CPU (no re-encode). |
+| nginx `X-Accel-Redirect` | Node authorises, nginx streams the bytes with `sendfile`. |
 
-### Install yt-dlp
+**Security**
+
+- No shell, args passed as an array with `--` terminator, `--ignore-config`, strict quality whitelist.
+- SSRF: only http(s) on default ports; private/link-local/metadata IPs rejected (incl. DNS resolution and IPv4-mapped IPv6); yt-dlp's `generic` extractor disabled; optional `ALLOWED_HOSTS`.
+- TLS verification always on (the old `--no-check-certificates` fallback is gone).
+- Errors are mapped to safe messages — stderr/paths never reach clients.
+- Per-IP token-bucket rate limits, per-client active-job cap, 8 KB body limit, strict CORS allow-list, security headers, CSP on the frontend.
+- Disk guard (min free space, max file size, TTL cleanup, orphan cleanup on boot).
+- Child processes get a minimal environment (no secrets leak), hard timeouts, and are killed as a process group.
+- systemd sandbox: dedicated user, read-only code, `ProtectSystem=strict`, no capabilities, syscall filter, memory/task limits.
+- yt-dlp auto-updates daily with SHA-256 verification.
+
+## Local development
+
+Prerequisites: Node 22.12+, `yt-dlp`, `ffmpeg`, and `deno` (yt-dlp needs a JS runtime for YouTube).
 
 ```bash
 # macOS
-brew install yt-dlp
+brew install yt-dlp ffmpeg deno
 
-# Linux
-sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
-sudo chmod a+rx /usr/local/bin/yt-dlp
-
-# Windows
-winget install yt-dlp
+cd server && npm install && npm run dev     # http://127.0.0.1:3003
+cd client && npm install && npm run dev     # http://localhost:5173 (proxies /api to :3003)
 ```
 
-## Setup
+Set `VITE_API_PROXY_TARGET=http://localhost:3003` in `client/.env` to use your local API.
 
-### Backend
+Tests (no network needed — uses a fake yt-dlp):
 
 ```bash
-cd backend
-npm install
-npm start
+cd server && npm test
 ```
 
-Server runs on http://localhost:3001
+## Deploying the backend (Ubuntu over SSH)
 
-### Backend scalability tuning
-
-You can tune concurrent downloads and queue limits with environment variables:
+First time (installs Node 24, ffmpeg, deno, yt-dlp, service user, systemd units, nginx site):
 
 ```bash
-MAX_CONCURRENT_DOWNLOADS=4
-MAX_DOWNLOAD_QUEUE_SIZE=500
-DOWNLOAD_RETRY_LIMIT=1
+DOMAIN=yt-dl.example.com deploy/deploy.sh user@your-server --bootstrap
+ssh user@your-server 'sudo certbot certonly --nginx -d yt-dl.example.com && sudo nginx -t && sudo systemctl reload nginx'
 ```
 
-- `MAX_CONCURRENT_DOWNLOADS`: how many yt-dlp jobs run at once
-- `MAX_DOWNLOAD_QUEUE_SIZE`: max queued requests before returning "server busy"
-- `DOWNLOAD_RETRY_LIMIT`: retry count for transient network/download failures
-
-### Frontend
+Every deploy after that (runs tests, uploads, `npm ci`, restarts, health-checks):
 
 ```bash
-cd frontend
-npm install
-npm run dev
+deploy/deploy.sh user@your-server
 ```
 
-App runs on http://localhost:5173
+Configuration lives in `/etc/video-downloader/env` — see [`server/.env.example`](server/.env.example) for every option.
 
-## Usage
+Useful commands on the server:
 
-1. Start both backend and frontend servers
-2. Open http://localhost:5173 in your browser
-3. Paste a YouTube video or playlist URL
-4. Select quality and click Download
+```bash
+journalctl -u video-downloader -f          # logs (JSON lines)
+systemctl status video-downloader
+curl -s localhost:3003/api/health          # queue / cache stats
+sudo systemctl start yt-dlp-update         # update yt-dlp now
+```
+
+### Client IPs behind proxies
+
+Rate limits are per client IP, so the API must see real IPs:
+
+- **Recommended:** have the frontend call the API directly. Set `VITE_API_BASE=https://yt-dl.example.com/api` on Netlify and `CORS_ORIGINS=https://your-site.netlify.app` on the server.
+- At minimum, set `VITE_DOWNLOAD_BASE=https://yt-dl.example.com/api` so large files skip the Netlify proxy (needs no CORS).
+- If you keep the Netlify `/api` proxy, every request arrives from Netlify's IPs. Set `TRUST_PROXY=2` and relax the nginx `limit_req` zones, or users will share limits.
+
+## Frontend (Netlify)
+
+Build command `npm run build`, publish directory `client/dist`. The build generates `_redirects` and `_headers` (CSP, HSTS, immutable asset caching) from the `VITE_*` env vars — see [`client/.env.example`](client/.env.example).
 
 ## Disclaimer
 
-For personal use only. Respect YouTube's Terms of Service and copyright laws.
+For personal use only. Respect creators, the source sites' Terms of Service and copyright law.
