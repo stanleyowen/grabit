@@ -1,99 +1,209 @@
-# Video Downloader
+<div align="center">
 
-Download videos, audio and playlists in any quality. React frontend, Node.js API backed by [yt-dlp](https://github.com/yt-dlp/yt-dlp), built to serve many users at once from a single Ubuntu box.
+<img src="docs/logo.svg" width="72" height="72" alt="Grabit logo" />
 
-## Architecture
+# Grabit
 
-```
-Browser ──► Netlify (static site) ──/api──► nginx (TLS, rate limit) ──► Node API (127.0.0.1:3003)
-   ▲                                          │                             │
-   └──────── file bytes via X-Accel-Redirect ─┘                             ├─ info service: LRU cache + in-flight de-dupe
-                                                                            ├─ job manager: shared tasks, FIFO queue, per-client caps
-                                                                            └─ yt-dlp / ffmpeg child processes (timeouts, process-group kill)
-```
+**Download videos, audio and playlists in any quality: a clean web UI for yt-dlp.**
 
-**Why it scales**
+Paste a link, pick a quality, done. Self-hosted, fast, and built to serve many people at once.
 
-| Technique | Effect |
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A522.12-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
+[![React](https://img.shields.io/badge/react-19-149eca?style=flat-square&logo=react&logoColor=white)](https://react.dev)
+[![Express](https://img.shields.io/badge/express-5-000000?style=flat-square&logo=express&logoColor=white)](https://expressjs.com)
+[![Tailwind CSS](https://img.shields.io/badge/tailwind-4-38bdf8?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
+[![yt-dlp](https://img.shields.io/badge/powered%20by-yt--dlp-red?style=flat-square)](https://github.com/yt-dlp/yt-dlp)
+
+[Features](#features) · [Screenshots](#screenshots) · [Quick start](#quick-start) · [How it works](#how-it-works) · [Deploy](#deploy) · [Configuration](#configuration) · [API](#api)
+
+<br />
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/video-dark.jpg" />
+  <img src="docs/screenshots/video-light.jpg" alt="Grabit showing a video with quality options and the downloads panel" width="900" />
+</picture>
+
+</div>
+
+## Features
+
+| | |
 |---|---|
-| Metadata cache (15 min LRU) + in-flight coalescing | 50 people pasting the same link at once → 1 yt-dlp call. Cached lookups ~1 ms. |
-| Shared download tasks | Same video + quality requested by many users → downloaded once, file shared for 20 min. |
-| One yt-dlp process per download | The old version spawned yt-dlp twice per download (once just to read the title). |
-| Bounded concurrency + bounded queues | Spikes get a clean `503 Retry-After` instead of exhausting CPU/RAM. |
-| Batched status polling | The UI polls every active job in **one** request, backs off when idle/hidden. |
-| H.264 + AAC preferred, M4A remux | Files play everywhere; M4A needs zero CPU (no re-encode). |
-| nginx `X-Accel-Redirect` | Node authorises, nginx streams the bytes with `sendfile`. |
+| 🎬 **Any quality** | 144p up to 4K, delivered as MP4 (H.264 + AAC where available) that plays on every device |
+| 🎧 **Audio only** | MP3 for compatibility, or M4A copied straight from the source without re-encoding |
+| 📚 **Playlists and channels** | Select the videos you want, choose one quality, and download them as a batch |
+| 📥 **Downloads panel** | Live progress, queue position, speed and time left, with cancel, retry and save; survives a page reload |
+| ⚡ **Paste and go** | Pasting a link fetches it immediately, and each format shows its estimated file size |
+| 🌗 **Light and dark** | Follows your system theme or lets you choose; works on mobile; no trackers or external fonts |
+| 🧱 **Built for concurrency** | Shared caches and shared downloads, bounded queues and per-user limits |
+| 🔒 **Secure by default** | SSRF-safe URL handling, no shell execution, sanitised errors, rate limiting, sandboxed deployment |
 
-**Security**
+## Screenshots
 
-- No shell, args passed as an array with `--` terminator, `--ignore-config`, strict quality whitelist.
-- SSRF: only http(s) on default ports; private/link-local/metadata IPs rejected (incl. DNS resolution and IPv4-mapped IPv6); yt-dlp's `generic` extractor disabled; optional `ALLOWED_HOSTS`.
-- TLS verification always on (the old `--no-check-certificates` fallback is gone).
-- Errors are mapped to safe messages — stderr/paths never reach clients.
-- Per-IP token-bucket rate limits, per-client active-job cap, 8 KB body limit, strict CORS allow-list, security headers, CSP on the frontend.
-- Disk guard (min free space, max file size, TTL cleanup, orphan cleanup on boot).
-- Child processes get a minimal environment (no secrets leak), hard timeouts, and are killed as a process group.
-- systemd sandbox: dedicated user, read-only code, `ProtectSystem=strict`, no capabilities, syscall filter, memory/task limits.
-- yt-dlp auto-updates daily with SHA-256 verification.
+<table>
+  <tr>
+    <td width="66%"><img src="docs/screenshots/home-light.jpg" alt="Home screen" /></td>
+    <td rowspan="2" width="34%"><img src="docs/screenshots/mobile-dark.jpg" alt="Mobile, dark mode" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/playlist-light.jpg" alt="Playlist selection with batch download" /></td>
+  </tr>
+</table>
 
-## Local development
+<sub>Screenshots show public-domain NASA videos.</sub>
 
-Prerequisites: Node 22.12+, `yt-dlp`, `ffmpeg`, and `deno` (yt-dlp needs a JS runtime for YouTube).
+## Quick start
+
+**Requirements:** Node.js 22.12+, [yt-dlp](https://github.com/yt-dlp/yt-dlp), [ffmpeg](https://ffmpeg.org), and [Deno](https://deno.com). yt-dlp needs a JavaScript runtime to download from YouTube.
 
 ```bash
-# macOS
+# macOS (on Linux, see deploy/update-ytdlp.sh for a checksum-verified yt-dlp install)
 brew install yt-dlp ffmpeg deno
 
-cd server && npm install && npm run dev     # http://127.0.0.1:3003
-cd client && npm install && npm run dev     # http://localhost:5173 (proxies /api to :3003)
+git clone https://github.com/stanleyowen/grabit.git && cd grabit
+
+# Terminal 1: API on http://127.0.0.1:3003
+cd server && npm install && npm run dev
+
+# Terminal 2, from the repo root: web app on http://localhost:5173 (proxies /api to the API)
+cd client && npm install && npm run dev
 ```
 
-Set `VITE_API_PROXY_TARGET=http://localhost:3003` in `client/.env` to use your local API.
+To point the web app at a different API, set `VITE_API_PROXY_TARGET` in `client/.env`; it defaults to `http://localhost:3003`.
 
-Tests (no network needed — uses a fake yt-dlp):
+**Tests** run fully offline against a fake yt-dlp:
 
 ```bash
 cd server && npm test
+node --test --test-name-pattern="job lifecycle" test/api.test.js   # run a single test
 ```
 
-## Deploying the backend (Ubuntu over SSH)
+## How it works
 
-First time (installs Node 24, ffmpeg, deno, yt-dlp, service user, systemd units, nginx site):
+```mermaid
+flowchart LR
+  U([Browser]) -->|static site| N[Netlify]
+  U -->|/api| P[Cloudflare Tunnel<br/>or nginx]
+  P --> A[Express API<br/>127.0.0.1:3003]
+  A --> I[Info service<br/>LRU cache + request sharing]
+  A --> J[Job manager<br/>shared tasks · FIFO queue]
+  I --> Y[[yt-dlp]]
+  J --> Y
+  Y --> F[[ffmpeg]]
+  J --> D[(Temporary files<br/>TTL cleanup)]
+```
+
+The API never downloads the same thing twice at the same time. Each `(video, quality)` pair becomes one **task**, and each person asking for it gets their own **ticket**. They all share the same yt-dlp process and the same finished file, which is kept for 20 minutes.
+
+| Technique | Why it matters |
+|---|---|
+| Metadata cache (15 min) and in-flight request sharing | 50 people pasting the same link at once trigger 1 yt-dlp call; cached lookups return in milliseconds |
+| Shared download tasks | Popular videos are downloaded once, not once per user |
+| One process per download | Previously each download spawned yt-dlp twice |
+| Bounded concurrency and queues | When busy, the server replies with a clean `503` and `Retry-After` instead of falling over |
+| Batched, adaptive polling | The UI checks all active downloads in one request and slows down when idle or in a background tab |
+| Codec choice | Prefers H.264 + AAC for compatibility; M4A audio needs no CPU because it isn't re-encoded |
+
+<details>
+<summary><b>Load test results</b> (laptop, 8 cores)</summary>
+
+| Scenario | Result |
+|---|---|
+| 200 concurrent clients, cached `/api/info` | ~11,500 req/s, p50 13 ms |
+| 200 concurrent clients, status polling | ~16,300 req/s, p99 22 ms |
+| 50 simultaneous cold lookups of one video | 1 yt-dlp process |
+| 30 users downloading the same video | 1 yt-dlp process |
+
+</details>
+
+### Security
+
+- **No shell, ever.** Arguments are passed as an array with a `--` terminator, `--ignore-config` is always set, and quality values come from a strict whitelist.
+- **SSRF protection.** Only http(s) on the default ports is accepted. Private, link-local and cloud-metadata addresses are rejected, including after DNS resolution and in IPv4-mapped IPv6 form. yt-dlp's `generic` extractor is disabled, and `ALLOWED_HOSTS` can restrict sites further.
+- **Nothing leaks.** yt-dlp output and server paths are mapped to friendly messages, and child processes get a minimal environment.
+- **Abuse limits.** Per-IP token-bucket rate limits, a cap on active downloads per user, an 8 KB request body limit, a strict CORS allow-list, CSP and HSTS.
+- **Resource safety.** Hard timeouts with process-group kills (ffmpeg included), a free-disk-space guard, a maximum file size, TTL cleanup, and removal of orphaned files on boot.
+- **Supply chain.** Minimal dependencies (the server depends only on `express`). yt-dlp and Deno are verified against their SHA-256 checksums and updated daily.
+
+## Deploy
+
+### PM2 behind a Cloudflare Tunnel (no sudo)
 
 ```bash
-DOMAIN=yt-dl.example.com deploy/deploy.sh user@your-server --bootstrap
-ssh user@your-server 'sudo certbot certonly --nginx -d yt-dl.example.com && sudo nginx -t && sudo systemctl reload nginx'
+deploy/deploy-pm2.sh user@your-server
 ```
 
-Every deploy after that (runs tests, uploads, `npm ci`, restarts, health-checks):
+The script:
+
+1. runs the test suite locally;
+2. installs or updates yt-dlp and Deno in `~/.local/opt/video-downloader/bin`, verifying their checksums;
+3. starts the new release under PM2 on a spare port with the **exact production config** and smoke-tests it;
+4. swaps it in, health-checks it, and **rolls back automatically** if anything fails;
+5. adds a daily cron job that updates yt-dlp.
+
+The app listens on `127.0.0.1:3003` only. Point your tunnel at it, and Grabit reads the real client IP from `CF-Connecting-IP`, which it only trusts from loopback.
+
+### systemd and nginx (root)
 
 ```bash
-deploy/deploy.sh user@your-server
+DOMAIN=dl.example.com deploy/deploy.sh user@your-server --bootstrap   # first time
+deploy/deploy.sh user@your-server                                     # updates
 ```
 
-Configuration lives in `/etc/video-downloader/env` — see [`server/.env.example`](server/.env.example) for every option.
+This installs Node, ffmpeg, Deno and yt-dlp, a sandboxed systemd unit (dedicated user, read-only code, no capabilities, syscall filter, memory limits), and an nginx site that adds TLS and rate limiting and streams files with `X-Accel-Redirect`.
 
-Useful commands on the server:
+### Frontend (Netlify)
 
-```bash
-journalctl -u video-downloader -f          # logs (JSON lines)
-systemctl status video-downloader
-curl -s localhost:3003/api/health          # queue / cache stats
-sudo systemctl start yt-dlp-update         # update yt-dlp now
+Use build command `npm run build` with base directory `client` and publish directory `client/dist`. The build generates `_redirects` and `_headers` (CSP, HSTS, immutable asset caching) from your environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `VITE_API_BASE` | Call the API directly, e.g. `https://api.example.com/api`. Recommended, because rate limits then see real client IPs. Requires `CORS_ORIGINS` on the server. |
+| `VITE_DOWNLOAD_BASE` | Fetch files straight from the API host instead of through the Netlify proxy. Needs no CORS. |
+| `VITE_API_PROXY_TARGET` | Target of the Netlify `/api/*` proxy, used when `VITE_API_BASE` isn't set. |
+
+## Configuration
+
+The API is configured through environment variables. Every option is documented in [`server/.env.example`](server/.env.example); these are the most common:
+
+| Variable | Default | |
+|---|---|---|
+| `HOST` / `PORT` | `127.0.0.1` / `3003` | Keep it on loopback behind a proxy |
+| `CLIENT_IP_HEADER` | — | e.g. `cf-connecting-ip`; trusted only from loopback |
+| `CORS_ORIGINS` | — | Comma-separated origins allowed to call the API |
+| `MAX_CONCURRENT_DOWNLOADS` | CPU cores (2–8) | yt-dlp downloads running in parallel |
+| `MAX_ACTIVE_JOBS_PER_CLIENT` | `6` | Queued or running downloads allowed per user |
+| `FILE_TTL_MS` | `1200000` | How long finished files are kept and shared |
+| `MIN_FREE_DISK_MB` / `MAX_FILESIZE` | `2048` / `4G` | Disk safety limits |
+| `ALLOWED_HOSTS` | any | Restrict to sites by suffix, e.g. `youtube.com,vimeo.com` |
+| `YTDLP_COOKIES_FILE` | — | cookies.txt for when a site demands sign-in |
+
+## API
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/info` | `{ url }` → video `{ type: "video", formats[] }` or playlist `{ type: "playlist", entries[] }` |
+| `POST` | `/api/jobs` | `{ url, quality }` → a job ticket. `quality` is `2160p`…`144p`, `mp3` or `m4a` |
+| `GET` | `/api/jobs?ids=a,b,…` | Batch status for up to 50 jobs |
+| `GET` | `/api/jobs/:id` | Status, progress, speed, ETA and queue position |
+| `DELETE` | `/api/jobs/:id` | Cancel a job; the download stops once no one else needs it |
+| `GET` | `/api/jobs/:id/file` | The finished file (supports range requests) |
+| `GET` | `/api/health` | Queue and cache statistics |
+
+Errors use the shape `{ "error": { "code", "message" } }`. A `Retry-After` header is set on `429` and `503` responses.
+
+## Project structure
+
+```
+client/   React 19 + Vite 8 + Tailwind 4 web app
+server/   Express 5 API: src/lib (yt-dlp runner, URL safety, limits), src/services (info, jobs)
+deploy/   PM2, systemd, nginx and yt-dlp update scripts
 ```
 
-### Client IPs behind proxies
+## License
 
-Rate limits are per client IP, so the API must see real IPs:
+[Apache 2.0](LICENSE)
 
-- **Recommended:** have the frontend call the API directly. Set `VITE_API_BASE=https://yt-dl.example.com/api` on Netlify and `CORS_ORIGINS=https://your-site.netlify.app` on the server.
-- At minimum, set `VITE_DOWNLOAD_BASE=https://yt-dl.example.com/api` so large files skip the Netlify proxy (needs no CORS).
-- If you keep the Netlify `/api` proxy, every request arrives from Netlify's IPs. Set `TRUST_PROXY=2` and relax the nginx `limit_req` zones, or users will share limits.
-
-## Frontend (Netlify)
-
-Build command `npm run build`, publish directory `client/dist`. The build generates `_redirects` and `_headers` (CSP, HSTS, immutable asset caching) from the `VITE_*` env vars — see [`client/.env.example`](client/.env.example).
-
-## Disclaimer
-
-For personal use only. Respect creators, the source sites' Terms of Service and copyright law.
+> [!IMPORTANT]
+> Grabit is for personal use. Respect creators, the Terms of Service of the sites you download from, and copyright law.
