@@ -28,7 +28,7 @@ Paste a link, pick a quality, done. Self-hosted, fast, and built to serve many p
 
 ## Features
 
-| | |
+| Feature | What you get |
 |---|---|
 | 🎬 **Any quality** | 144p up to 4K, delivered as MP4 (H.264 + AAC where available) that plays on every device |
 | 🎧 **Audio only** | MP3 for compatibility, or M4A copied straight from the source without re-encoding |
