@@ -8,9 +8,14 @@ export class AppError extends Error {
   }
 }
 
+// Statuses avoid 502/504: Cloudflare replaces those response bodies with its
+// own HTML error page, which would hide these messages from the client.
 // Map raw yt-dlp stderr to a user-facing message. Never leak stderr itself:
 // it contains server paths, versions and upstream URLs.
 const PATTERNS = [
+  // Egress proxy denials (see lib/egressProxy.js DENY_REASON): checked first.
+  [/Egress Blocked By DNS Filter/i, 403, "dns_blocked", "Part of this site is blocked by the server's DNS filter."],
+  [/Egress Blocked (Private Address|Port)/i, 403, "egress_blocked", "This link tries to reach a private or disallowed address."],
   [/max-filesize|larger than max-filesize/i, 413, "too_large", "This file is larger than the server allows."],
   [/Unsupported URL|no suitable extractor/i, 400, "unsupported", "This link isn't supported."],
   [/Private video|members-only|This video is private/i, 403, "private", "This video is private or members-only."],
@@ -22,17 +27,17 @@ const PATTERNS = [
   [/Requested format is not available/i, 422, "format", "That quality isn't available for this video."],
   [/authentication is required|login required|log in to|requires? (an )?account|--cookies-from-browser|use --cookies/i, 403, "login_required", "This site only allows downloads for signed-in users."],
   [/HTTP Error 403|Forbidden/i, 403, "forbidden", "The site refused the request from the server."],
-  [/Cannot parse data|Unable to extract|Unable to download (webpage|JSON)/i, 502, "site_changed", "Couldn't read this page. The site may have changed. Try again later."],
+  [/Cannot parse data|Unable to extract|Unable to download (webpage|JSON)/i, 422, "site_changed", "Couldn't read this page. The site may have changed. Try again later."],
 ];
 
 export function fromYtDlpError(error, fallback = "Couldn't process this link.") {
   if (error instanceof AppError) return error;
   const text = `${error?.message || ""}\n${error?.stderr || ""}`;
-  if (error?.timedOut) return new AppError(504, "timeout", "The request took too long. Try again.", { cause: error });
+  if (error?.timedOut) return new AppError(503, "timeout", "The request took too long. Try again.", { cause: error, retryAfter: 10 });
   for (const [re, status, code, message] of PATTERNS) {
     if (re.test(text)) return new AppError(status, code, message, { cause: error });
   }
-  return new AppError(502, "failed", fallback, { cause: error });
+  return new AppError(422, "failed", fallback, { cause: error });
 }
 
 export function isTransient(error) {

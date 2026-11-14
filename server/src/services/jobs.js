@@ -376,7 +376,7 @@ async function locateOutput(dir, printed) {
     const { size } = await fsp.stat(p);
     if (!best || size > best.size) best = { p, size };
   }
-  if (!best) throw new AppError(502, "no_output", "Download finished but no file was produced.");
+  if (!best) throw new AppError(422, "no_output", "Download finished but no file was produced.");
   return best.p;
 }
 
