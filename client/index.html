@@ -1,10 +1,17 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⬇️</text></svg>" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>YouTube Downloader</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Save videos, audio and playlists for offline viewing." />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)" />
+    <meta name="referrer" content="no-referrer" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Video Downloader</title>
+    <!-- Applies the saved theme before first paint (external file keeps CSP free of 'unsafe-inline'). -->
+    <script src="/theme.js"></script>
   </head>
   <body>
     <div id="root"></div>

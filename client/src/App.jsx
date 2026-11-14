@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Moon, Sun, Download, Loader2, AlertCircle, Youtube } from 'lucide-react';
+import { Moon, Sun, Download, Loader2, AlertCircle, MonitorPlay } from 'lucide-react';
 import UrlInput from './components/UrlInput';
 import VideoCard from './components/VideoCard';
 import QualitySelect from './components/QualitySelect';
@@ -180,7 +180,7 @@ export default function App() {
         <div className="flex flex-col items-center pt-12 pb-12">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-3 bg-red-500 rounded-2xl">
-              <Youtube className="h-8 w-8 text-white" />
+              <MonitorPlay className="h-8 w-8 text-white" />
             </div>
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
               Video Downloader
