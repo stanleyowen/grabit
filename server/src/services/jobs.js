@@ -37,6 +37,7 @@ export const isTicketId = (id) => typeof id === "string" && UUID_RE.test(id);
 export function normalizeQuality(q) {
   if (q === "mp3" || q === "audio") return "mp3";
   if (q === "m4a") return "m4a";
+  if (q === "best") return "best";
   const m = typeof q === "string" && q.match(QUALITY_RE);
   if (m) {
     const h = Number(m[1]);
@@ -277,6 +278,11 @@ async function run(task) {
   }
 }
 
+// Only formats yt-dlp downloads itself: RTMP/RTSP/MMS would hand a URL from
+// an untrusted page straight to an external program.
+const SAFE = "[protocol!*=rtmp][protocol!*=rtsp][protocol!*=mms]";
+const SAFE_DEMUXERS = "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,mp3,aac,ogg,flac,wav,mpegts,flv,avi,asf";
+
 function downloadArgs(task, dir) {
   const args = [
     "--no-playlist",
@@ -291,18 +297,29 @@ function downloadArgs(task, dir) {
     "--windows-filenames",
     "-P", dir,
     "-o", "%(title).150B.%(ext)s",
+    // HLS is fetched by yt-dlp itself (through the egress proxy), never by ffmpeg.
+    "--downloader", "m3u8:native",
+    // ffmpeg/ffprobe only ever read the files we downloaded, and only as plain
+    // media containers: no hls/concat/etc. demuxers that could be abused by a
+    // crafted "video" to read local files or reach the network.
+    "--postprocessor-args", `ffmpeg_i:-format_whitelist ${SAFE_DEMUXERS}`,
+    "--postprocessor-args", `ffprobe_i:-format_whitelist ${SAFE_DEMUXERS}`,
   ];
 
   if (task.quality === "mp3") {
-    args.push("-f", "ba/b", "-x", "--audio-format", "mp3", "--audio-quality", "0");
+    args.push("-f", `ba${SAFE}/b${SAFE}`, "-x", "--audio-format", "mp3", "--audio-quality", "0");
   } else if (task.quality === "m4a") {
     // No re-encode: just remux the native AAC stream. Zero CPU cost.
-    args.push("-f", "ba[ext=m4a]/ba/b", "-x", "--audio-format", "m4a");
+    args.push("-f", `ba[ext=m4a]${SAFE}/ba${SAFE}/b${SAFE}`, "-x", "--audio-format", "m4a");
+  } else if (task.quality === "best") {
+    // Sources without resolution info (e.g. direct links): highest quality,
+    // preferring H.264/AAC only among equal resolutions.
+    args.push("-f", `bv*${SAFE}+ba${SAFE}/b${SAFE}`, "-S", "res,vcodec:h264,acodec:m4a", "--merge-output-format", "mp4");
   } else {
     const h = task.quality.slice(0, -1);
     // Prefer H.264 + AAC so the file plays everywhere (QuickTime, iOS, TVs);
     // fall back to VP9/AV1 only where H.264 doesn't exist (1440p+).
-    args.push("-f", "bv*+ba/b", "-S", `res:${h},vcodec:h264,acodec:m4a`, "--merge-output-format", "mp4");
+    args.push("-f", `bv*${SAFE}+ba${SAFE}/b${SAFE}`, "-S", `res:${h},vcodec:h264,acodec:m4a`, "--merge-output-format", "mp4");
   }
 
   args.push("--", task.url);
@@ -321,7 +338,7 @@ function updateProgress(task, line) {
   const partPct = downloaded !== null && size ? Math.min(100, (downloaded / size) * 100) : 0;
 
   // Video+audio downloads arrive as two streams; weight them so the bar never goes backwards.
-  const isMergedVideo = task.quality.endsWith("p");
+  const isMergedVideo = task.quality.endsWith("p") || task.quality === "best";
   let percent = partPct;
   let phase = "downloading";
   if (isMergedVideo && vcodec === "none") {

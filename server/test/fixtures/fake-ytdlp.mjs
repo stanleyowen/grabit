@@ -18,6 +18,17 @@ if (url.includes("unavailable")) {
 }
 
 if (has("-J")) {
+  if (url.includes("envcheck")) {
+    // Reports how the server launched us: proxy env + extractor policy.
+    const proxied = /^http:\/\/grabit:[^@]+@127\.0\.0\.1:\d+$/.test(process.env.HTTPS_PROXY || "");
+    const generic = val("--use-extractors") === "default";
+    console.log(JSON.stringify({
+      id: "envcheck", title: `proxy=${proxied} generic=${generic} noproxy=${process.env.NO_PROXY ?? "unset"}`,
+      // Direct-link style: no height, no codec info.
+      formats: [{ format_id: "0", ext: "mp4", url: "https://cdn.example/v.mp4", filesize: 5000 }],
+    }));
+    process.exit(0);
+  }
   if (url.includes("playlist")) {
     console.log(JSON.stringify({
       _type: "playlist", id: "PL1", title: "Fake list", playlist_count: 2,

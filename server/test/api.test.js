@@ -26,10 +26,15 @@ Object.assign(process.env, {
 const { createApp } = await import("../src/app.js");
 const { initJobs, shutdownJobs } = await import("../src/services/jobs.js");
 const { limiters } = await import("../src/routes/api.js");
+const { startEgressProxy } = await import("../src/lib/egressProxy.js");
+const { setEgressProxy } = await import("../src/lib/ytdlp.js");
 
 let server;
 let base;
+let egress;
 before(async () => {
+  egress = await startEgressProxy(); // wired exactly like src/index.js
+  setEgressProxy(egress.url);
   await initJobs();
   server = createApp().listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
@@ -39,6 +44,7 @@ after(async () => {
   server.close();
   Object.values(limiters).forEach((l) => l.close());
   await shutdownJobs();
+  await egress.close();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -123,6 +129,18 @@ test("file errors return JSON, never a fake attachment", async () => {
   assert.equal(res.status, 404);
   assert.match(res.headers.get("content-type"), /application\/json/);
   assert.equal(res.headers.get("content-disposition"), null);
+});
+
+test("yt-dlp runs behind the egress proxy with the generic extractor enabled", async () => {
+  process.env.NO_PROXY = "*"; // must never reach the child
+  const info = await (await post("/api/info", { url: "https://93.184.215.14/envcheck.mp4" })).json();
+  delete process.env.NO_PROXY;
+  assert.equal(info.title, "proxy=true generic=true noproxy=unset");
+  // No resolution/codec info (direct link): a "Best" video option is offered.
+  assert.deepEqual(info.formats.map((f) => f.id), ["best", "m4a", "mp3"]);
+  const job = await post("/api/jobs", { url: "https://93.184.215.14/envcheck.mp4", quality: "best" });
+  assert.equal(job.status, 201);
+  await fetch(`${base}/api/jobs/${(await job.json()).id}`, { method: "DELETE" });
 });
 
 test("cancel kills a queued/running job", async () => {

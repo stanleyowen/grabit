@@ -97,15 +97,19 @@ function toVideo(info, target) {
   const sizeOf = (f) => num(f.filesize) ?? num(f.filesize_approx);
 
   // Best m4a audio — what the default sort (acodec:m4a) will merge in.
+  // Many extractors leave vcodec/acodec unset, so classify defensively.
+  const isAudioOnly = (f) => f.vcodec === "none" || f.video_ext === "none" || f.resolution === "audio only";
+  const hasVideo = (f) => !isAudioOnly(f) && f.ext !== "mhtml" && !/storyboard/i.test(f.format_note || "");
+
   const audio = formats
-    .filter((f) => f.vcodec === "none" && f.acodec && f.acodec !== "none")
+    .filter((f) => isAudioOnly(f) && f.acodec !== "none")
     .sort((a, b) => Number(/^mp4a/.test(b.acodec)) - Number(/^mp4a/.test(a.acodec)) || (b.abr || 0) - (a.abr || 0))[0];
   const audioSize = audio ? sizeOf(audio) : null;
 
   // Group video formats by resolution (smallest dimension, like yt-dlp's "res").
   const byRes = new Map();
   for (const f of formats) {
-    if (!f.vcodec || f.vcodec === "none" || !f.height) continue;
+    if (!hasVideo(f) || !f.height) continue;
     const res = f.width ? Math.min(f.width, f.height) : f.height;
     const prefer = (x) => [Number(/^avc1|^h264/.test(x.vcodec || "")), x.tbr || 0];
     const current = byRes.get(res);
@@ -131,6 +135,12 @@ function toVideo(info, target) {
         size: vSize ? vSize + (merged && audioSize ? audioSize : 0) : null,
       };
     });
+
+  // Video without resolution info (typical for direct links): offer "Best".
+  if (options.length === 0 && formats.some(hasVideo)) {
+    const sizes = formats.filter(hasVideo).map(sizeOf).filter(Boolean);
+    options.push({ id: "best", kind: "video", label: "Best", detail: "Original quality", fps: null, size: sizes.length ? Math.max(...sizes) : null });
+  }
 
   const duration = num(info.duration);
   const [thumbnail, thumbnailFallback] = pickHeroThumbnails(info);

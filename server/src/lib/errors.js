@@ -20,6 +20,9 @@ const PATTERNS = [
   [/Video unavailable|not available|has been removed|does not exist|HTTP Error 404/i, 404, "unavailable", "This video is unavailable."],
   [/live event will begin|is not currently live|Premieres in/i, 409, "not_live", "This stream hasn't started yet."],
   [/Requested format is not available/i, 422, "format", "That quality isn't available for this video."],
+  [/authentication is required|login required|log in to|requires? (an )?account|--cookies-from-browser|use --cookies/i, 403, "login_required", "This site only allows downloads for signed-in users."],
+  [/HTTP Error 403|Forbidden/i, 403, "forbidden", "The site refused the request from the server."],
+  [/Cannot parse data|Unable to extract|Unable to download (webpage|JSON)/i, 502, "site_changed", "Couldn't read this page. The site may have changed. Try again later."],
 ];
 
 export function fromYtDlpError(error, fallback = "Couldn't process this link.") {
