@@ -25,9 +25,9 @@ export function Logo({ className = "" }) {
 export default function Header({ theme, onThemeChange }) {
   return (
     <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-4 sm:px-6">
-      <a href="/" className="flex items-center gap-2.5 rounded-lg" aria-label="Video Downloader home">
+      <a href="/" className="flex items-center gap-2.5 rounded-lg" aria-label="Grabit home">
         <Logo className="size-8" />
-        <span className="text-[15px] font-semibold tracking-tight">Downloader</span>
+        <span className="text-[15px] font-semibold tracking-tight">Grabit</span>
       </a>
 
       <div role="radiogroup" aria-label="Color theme" className="flex rounded-full border border-line bg-surface p-0.5">
