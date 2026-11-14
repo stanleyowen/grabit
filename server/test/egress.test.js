@@ -19,7 +19,7 @@ function connect(proxy, target, auth = authHeader(proxy.url)) {
       path: target,
       headers: auth ? { "proxy-authorization": auth } : {},
     });
-    req.on("connect", (res, socket) => resolve({ status: res.statusCode, socket }));
+    req.on("connect", (res, socket) => resolve({ status: res.statusCode, reason: res.statusMessage, socket }));
     req.on("response", (res) => resolve({ status: res.statusCode }));
     req.on("error", reject);
     req.end();
@@ -70,6 +70,16 @@ test("blocks private destinations for plain HTTP too", async () => {
 test("blocks a hostname if ANY of its addresses is private (DNS-based SSRF)", async () => {
   const p = await startEgressProxy({ resolve: async () => ["93.184.216.34", "127.0.0.1"] });
   assert.equal((await connect(p, "evil.example:443")).status, 403);
+  await p.close();
+});
+
+test("reports DNS-filter sinkholes distinctly", async () => {
+  const p = await startEgressProxy({ resolve: async () => ["0.0.0.0", "::"] });
+  const r = await connect(p, "blocked-by-adguard.example:443");
+  assert.equal(r.status, 403);
+  assert.match(r.reason, /DNS Filter/);
+  const priv = await connect(strict, "127.0.0.1:443");
+  assert.match(priv.reason, /Private Address/);
   await p.close();
 });
 

@@ -1,6 +1,6 @@
-import dns from "node:dns/promises";
 import net from "node:net";
 import { AppError } from "./errors.js";
+import { classifyAddresses, resolveHost } from "./resolver.js";
 import { TtlCache } from "./ttlCache.js";
 
 const MAX_URL_LENGTH = 2048;
@@ -135,6 +135,10 @@ function normalizeYouTube(u, host) {
 
 const dnsCache = new TtlCache({ max: 2000, ttlMs: 5 * 60_000 });
 
+const UNREACHABLE = () => new AppError(400, "invalid_url", "That address isn't reachable.");
+const DNS_BLOCKED = () =>
+  new AppError(400, "dns_blocked", "This site is blocked by the server's DNS filter.");
+
 /** Resolve the hostname and refuse private/internal targets (DNS-based SSRF). */
 export async function assertPublicHost(host) {
   if (YT_HOSTS.has(host)) return;
@@ -143,17 +147,15 @@ export async function assertPublicHost(host) {
     if (isPrivateAddress(bare)) throw new AppError(400, "invalid_url", "Enter a valid http(s) link.");
     return;
   }
-  const cached = dnsCache.get(host);
-  if (cached === true) return;
-  if (cached === false) throw new AppError(400, "invalid_url", "That address isn't reachable.");
-
-  let addrs;
-  try {
-    addrs = await dns.lookup(host, { all: true, verbatim: true });
-  } catch {
-    throw new AppError(400, "invalid_url", "That address couldn't be found.");
+  let verdict = dnsCache.get(host);
+  if (!verdict) {
+    try {
+      verdict = classifyAddresses(await resolveHost(bare));
+    } catch {
+      throw new AppError(400, "invalid_url", "That address couldn't be found.");
+    }
+    dnsCache.set(host, verdict);
   }
-  const ok = addrs.length > 0 && addrs.every((a) => !isPrivateAddress(a.address));
-  dnsCache.set(host, ok);
-  if (!ok) throw new AppError(400, "invalid_url", "That address isn't reachable.");
+  if (verdict === "blocked") throw DNS_BLOCKED();
+  if (verdict !== "ok") throw UNREACHABLE();
 }

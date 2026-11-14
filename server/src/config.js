@@ -49,6 +49,8 @@ export const config = Object.freeze({
   // TCP peer is loopback (i.e. the local tunnel daemon), so it can't be spoofed.
   clientIpHeader: (env.CLIENT_IP_HEADER || "").toLowerCase(),
   corsOrigins: list("CORS_ORIGINS"),
+  // Resolver for SSRF checks + egress proxy. Empty = system resolver.
+  dnsServers: list("DNS_SERVERS"),
 
   downloadsDir: path.resolve(env.DOWNLOADS_DIR || path.join(ROOT, "downloads")),
   // When set (e.g. "/_protected/"), nginx serves files via X-Accel-Redirect.

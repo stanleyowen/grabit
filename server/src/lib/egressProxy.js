@@ -1,8 +1,8 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import dns from "node:dns/promises";
 import http from "node:http";
 import net from "node:net";
 import { log } from "./logger.js";
+import { resolveHost } from "./resolver.js";
 import { isPrivateAddress } from "./url.js";
 
 /*
@@ -23,18 +23,20 @@ import { isPrivateAddress } from "./url.js";
 
 const HOP_HEADERS = ["proxy-authorization", "proxy-connection", "connection", "keep-alive", "te", "trailer", "upgrade"];
 
-async function defaultResolve(host) {
-  const bare = host.replace(/^\[|\]$/g, "");
-  if (net.isIP(bare)) return [bare];
-  const addrs = await dns.lookup(bare, { all: true, verbatim: true });
-  return addrs.map((a) => a.address);
-}
+// Reason phrases end up in yt-dlp's error text ("HTTP Error 403: ..."),
+// which lib/errors.js maps to a precise user-facing message.
+export const DENY_REASON = { dns: "Egress Blocked By DNS Filter", private: "Egress Blocked Private Address", port: "Egress Blocked Port" };
 
-export class EgressDenied extends Error {}
+export class EgressDenied extends Error {
+  constructor(kind, message) {
+    super(message);
+    this.kind = kind;
+  }
+}
 
 export async function startEgressProxy({
   allowedPorts = [80, 443],
-  resolve = defaultResolve,
+  resolve = resolveHost,
   isBlocked = isPrivateAddress,
   connectTimeoutMs = 15_000,
   idleTimeoutMs = 120_000,
@@ -52,16 +54,17 @@ export async function startEgressProxy({
 
   // Resolve and vet a destination; returns the pinned IP to connect to.
   async function vet(host, port) {
-    if (!allowedPorts.includes(port)) throw new EgressDenied(`port ${port} not allowed`);
+    if (!allowedPorts.includes(port)) throw new EgressDenied("port", `port ${port} not allowed`);
     let ips;
     try {
       ips = await resolve(host);
     } catch {
-      throw new EgressDenied(`cannot resolve ${host}`);
+      throw new EgressDenied("private", `cannot resolve ${host}`);
     }
-    if (ips.length === 0) throw new EgressDenied(`no address for ${host}`);
+    if (ips.length === 0) throw new EgressDenied("private", `no address for ${host}`);
+    if (ips.every((ip) => ip === "0.0.0.0" || ip === "::")) throw new EgressDenied("dns", `${host} is blocked by the DNS filter`);
     const bad = ips.find((ip) => isBlocked(ip));
-    if (bad) throw new EgressDenied(`${host} resolves to blocked address ${bad}`);
+    if (bad) throw new EgressDenied("private", `${host} resolves to blocked address ${bad}`);
     return ips[0];
   }
 
@@ -90,7 +93,7 @@ export async function startEgressProxy({
       ip = await vet(target.hostname, port);
     } catch (err) {
       deny(target.hostname, err.message);
-      res.writeHead(403).end();
+      res.writeHead(403, DENY_REASON[err.kind] || "Forbidden").end();
       return;
     }
     stats.allowed += 1;
@@ -136,7 +139,7 @@ export async function startEgressProxy({
       ip = await vet(host, port);
     } catch (err) {
       deny(host, err.message);
-      client.end("HTTP/1.1 403 Forbidden\r\n\r\n");
+      client.end(`HTTP/1.1 403 ${DENY_REASON[err.kind] || "Forbidden"}\r\n\r\n`);
       return;
     }
     stats.allowed += 1;

@@ -4,6 +4,7 @@ import { fromYtDlpError } from "../src/lib/errors.js";
 import { RateLimiter } from "../src/lib/rateLimit.js";
 import { Semaphore } from "../src/lib/semaphore.js";
 import { TtlCache } from "../src/lib/ttlCache.js";
+import { classifyAddresses } from "../src/lib/resolver.js";
 import { isPrivateAddress, normalizeUrl } from "../src/lib/url.js";
 
 test("normalizeUrl canonicalises YouTube links", () => {
@@ -96,4 +97,35 @@ test("Semaphore bounds concurrency and queue", async () => {
   await assert.rejects(job(), { code: "busy" });
   await Promise.all(runs);
   assert.equal(peak, 2);
+});
+
+test("classifyAddresses distinguishes DNS-filter blocks from private targets", () => {
+  assert.equal(classifyAddresses(["0.0.0.0"]), "blocked");
+  assert.equal(classifyAddresses(["0.0.0.0", "::"]), "blocked");
+  assert.equal(classifyAddresses(["93.184.215.14"]), "ok");
+  assert.equal(classifyAddresses(["93.184.215.14", "10.0.0.1"]), "private");
+  assert.equal(classifyAddresses(["127.0.0.1"]), "private");
+  assert.equal(classifyAddresses([]), "private");
+});
+
+test("site failures never use 502/504 (Cloudflare would replace the body)", () => {
+  const cases = [
+    "ERROR: [facebook] 1: Cannot parse data; please report this issue",
+    "ERROR: [x] 1: Unable to download webpage: HTTP Error 500",
+    "ERROR: something nobody has seen before",
+  ];
+  for (const stderr of cases) {
+    const e = fromYtDlpError(Object.assign(new Error("exit 1"), { stderr }));
+    assert.ok(![502, 504].includes(e.status), `${stderr} -> ${e.status}`);
+  }
+  const timeout = fromYtDlpError(Object.assign(new Error("t"), { timedOut: true }));
+  assert.equal(timeout.status, 503);
+  assert.ok(timeout.retryAfter > 0);
+});
+
+test("egress denials map to precise messages", () => {
+  const map = (stderr) => fromYtDlpError(Object.assign(new Error("x"), { stderr })).code;
+  assert.equal(map("ERROR: HTTP Error 403: Egress Blocked By DNS Filter"), "dns_blocked");
+  assert.equal(map("ERROR: Tunnel connection failed: 403 Egress Blocked Private Address"), "egress_blocked");
+  assert.equal(map("ERROR: HTTP Error 403: Forbidden"), "forbidden");
 });

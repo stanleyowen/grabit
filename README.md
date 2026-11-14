@@ -184,6 +184,7 @@ The API is configured through environment variables. Every option is documented 
 | `ALLOWED_HOSTS` | any | Restrict to sites by suffix, e.g. `youtube.com,vimeo.com` |
 | `ENABLE_GENERIC_EXTRACTOR` | `true` | Direct media links and embedded players; only active with the egress proxy |
 | `EGRESS_PROXY` / `EGRESS_ALLOWED_PORTS` | `true` / `80,443` | Network-level SSRF protection for yt-dlp and ffmpeg |
+| `DNS_SERVERS` | system | Resolver for SSRF checks and the egress proxy, e.g. `1.1.1.1,9.9.9.9` to bypass a local DNS filter |
 | `YTDLP_COOKIES_FILE` | — | cookies.txt for when a site demands sign-in |
 
 ## API
