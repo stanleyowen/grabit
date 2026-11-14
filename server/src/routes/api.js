@@ -71,7 +71,11 @@ api.get("/jobs/:id/file", limiters.file.middleware(), (req, res, next) => {
     return res.end();
   }
 
-  res.sendFile(file.path, { dotfiles: "deny", acceptRanges: true, lastModified: false }, (err) => {
+  // dotfiles must be "allow": send() checks every segment of the absolute
+  // path, so "deny" rejects files under e.g. ~/.local/share and titles that
+  // start with a dot. The path is server-generated and confined to the task
+  // directory (see locateOutput), so there is nothing to deny here.
+  res.sendFile(file.path, { dotfiles: "allow", acceptRanges: true, lastModified: false }, (err) => {
     if (err && !res.headersSent) next(err);
   });
 });

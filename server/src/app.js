@@ -81,6 +81,10 @@ export function createApp() {
     }
     if (error.retryAfter) res.set("Retry-After", String(error.retryAfter));
     if (res.headersSent) return res.end();
+    // A failed file download may already have set attachment headers; without
+    // this the browser saves the JSON error as a broken "video".
+    res.removeHeader("Content-Disposition");
+    res.type("application/json");
     res.status(error.status).json({ error: { code: error.code, message: error.message } });
   });
 

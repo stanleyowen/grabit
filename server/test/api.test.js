@@ -9,10 +9,13 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const fake = path.join(here, "fixtures", "fake-ytdlp.mjs");
 fs.chmodSync(fake, 0o755);
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ytdl-test-"));
+// Mirror production (~/.local/share/...): a dot-directory in the path must not
+// stop files from being served.
+const downloads = path.join(tmp, ".local", "share", "downloads");
 
 Object.assign(process.env, {
   YTDLP_PATH: fake,
-  DOWNLOADS_DIR: tmp,
+  DOWNLOADS_DIR: downloads,
   MAX_CONCURRENT_DOWNLOADS: "1",
   MAX_ACTIVE_JOBS_PER_CLIENT: "3",
   MIN_FREE_DISK_MB: "0",
@@ -106,7 +109,20 @@ test("job lifecycle: queue -> ready -> file, de-duplicated across clients", asyn
   assert.equal((await file.arrayBuffer()).byteLength, 1000);
 
   // Only one task directory exists on disk for both tickets.
-  assert.equal(fs.readdirSync(tmp).length, 1);
+  assert.equal(fs.readdirSync(downloads).length, 1);
+});
+
+test("file errors return JSON, never a fake attachment", async () => {
+  const j = await (await post("/api/jobs", { url: VIDEO, quality: "m4a" })).json();
+  const ready = await waitFor(j.id, "ready");
+  for (const d of fs.readdirSync(downloads)) {
+    const f = path.join(downloads, d, ready.fileName);
+    if (fs.existsSync(f)) fs.rmSync(f);
+  }
+  const res = await fetch(`${base}/api/jobs/${j.id}/file`);
+  assert.equal(res.status, 404);
+  assert.match(res.headers.get("content-type"), /application\/json/);
+  assert.equal(res.headers.get("content-disposition"), null);
 });
 
 test("cancel kills a queued/running job", async () => {
