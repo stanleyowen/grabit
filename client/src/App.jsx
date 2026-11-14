@@ -1,254 +1,131 @@
-import { useState, useEffect } from 'react';
-import { Moon, Sun, Download, Loader2, AlertCircle, Youtube } from 'lucide-react';
-import UrlInput from './components/UrlInput';
-import VideoCard from './components/VideoCard';
-import QualitySelect from './components/QualitySelect';
-import PlaylistView from './components/PlaylistView';
+import { AudioLines, ListVideo, MonitorPlay } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
+import Alert from "./components/Alert";
+import DownloadsDock from "./components/DownloadsDock";
+import Header from "./components/Header";
+import PlaylistResult from "./components/PlaylistResult";
+import ResultSkeleton from "./components/ResultSkeleton";
+import UrlForm from "./components/UrlForm";
+import VideoResult from "./components/VideoResult";
+import { useDownloads } from "./hooks/useDownloads";
+import { useTheme } from "./hooks/useTheme";
+import { api } from "./lib/api";
 
-const API_BASE = '/api';
-
-function buildApiUrl(path) {
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const fullPath = `${API_BASE}${normalizedPath}`;
-
-  // Build absolute URLs so fetch/navigation work consistently across hosts/webviews.
-  if (typeof window !== 'undefined') {
-    try {
-      return new URL(fullPath, window.location.origin).toString();
-    } catch {
-      return fullPath;
-    }
-  }
-
-  return fullPath;
-}
+const FEATURES = [
+  { Icon: MonitorPlay, title: "Up to 4K", text: "MP4 that plays on every device." },
+  { Icon: AudioLines, title: "Audio only", text: "MP3, or lossless-copy M4A." },
+  { Icon: ListVideo, title: "Whole playlists", text: "Pick the videos you want." },
+];
 
 export default function App() {
-  const [darkMode, setDarkMode] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    }
-    return false;
-  });
+  const [theme, setTheme] = useTheme();
+  const downloads = useDownloads();
+  const [info, setInfo] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [videoInfo, setVideoInfo] = useState(null);
-  const [selectedQuality, setSelectedQuality] = useState('');
-  const [downloading, setDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState('');
-  const [downloadingIds, setDownloadingIds] = useState(new Set());
+  const [notice, setNotice] = useState(null);
+  const lastUrl = useRef("");
+  const abortRef = useRef(null);
 
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', darkMode);
-  }, [darkMode]);
-
-  const fetchInfo = async (url) => {
+  const lookup = useCallback(async (url) => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    lastUrl.current = url;
     setLoading(true);
     setError(null);
-    setVideoInfo(null);
-
+    setNotice(null);
+    setInfo(null);
     try {
-      const response = await fetch(buildApiUrl('/info'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch video info');
-      }
-
-      setVideoInfo(data);
-      if (data.qualities && data.qualities.length > 0) {
-        setSelectedQuality(data.qualities[0].quality);
-      }
+      setInfo(await api.info(url, ctrl.signal));
     } catch (err) {
-      setError(err.message);
+      if (!ctrl.signal.aborted) setError({ message: err.message, retryable: err.retryable || err.status >= 500 });
     } finally {
-      setLoading(false);
+      if (abortRef.current === ctrl) setLoading(false);
     }
+  }, []);
+
+  const cancelLookup = () => {
+    abortRef.current?.abort();
+    setLoading(false);
   };
 
-  const startDownload = async (url, quality, videoId = null) => {
-    if (videoId) {
-      setDownloadingIds(prev => new Set([...prev, videoId]));
-    } else {
-      setDownloading(true);
-      setDownloadProgress('Starting download...');
-    }
-    setError(null);
-
-    try {
-      if (!url || typeof url !== 'string') {
-        throw new Error('Invalid video URL from source metadata');
-      }
-
-      // Start the download
-      const response = await fetch(buildApiUrl('/download'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, quality })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to start download');
-      }
-
-      const downloadId = data.downloadId;
-      if (!videoId) {
-        setDownloadProgress('Processing video...');
-      }
-
-      // Poll for completion
-      let attempts = 0;
-      const maxAttempts = 900; // 15 minutes timeout
-
-      while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        const statusResponse = await fetch(buildApiUrl(`/status/${downloadId}`));
-        const statusData = await statusResponse.json();
-
-        if (statusData.status === 'ready') {
-          // Trigger download
-          window.location.assign(buildApiUrl(`/file/${downloadId}`));
-
-          if (videoId) {
-            setDownloadingIds(prev => {
-              const newSet = new Set(prev);
-              newSet.delete(videoId);
-              return newSet;
-            });
-          } else {
-            setDownloadProgress('Download started!');
-            setTimeout(() => {
-              setDownloading(false);
-              setDownloadProgress('');
-            }, 2000);
-          }
-          return;
-        } else if (statusData.status === 'error') {
-          throw new Error(statusData.error || 'Download failed');
-        }
-
-        attempts++;
-        if (!videoId) {
-          setDownloadProgress(`Processing... (${attempts}s)`);
-        }
-      }
-
-      throw new Error('Download timed out');
-    } catch (err) {
-      const message = err?.message || 'Download failed';
-      setError(
-        message === 'The string did not match the expected pattern.'
-          ? 'Invalid URL pattern detected. Please refresh the page and try again.'
-          : message,
-      );
-      if (videoId) {
-        setDownloadingIds(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(videoId);
-          return newSet;
-        });
-      } else {
-        setDownloading(false);
-        setDownloadProgress('');
-      }
-    }
+  const enqueue = (entries) => {
+    const { added, skipped } = downloads.add(Array.isArray(entries) ? entries : [entries]);
+    if (skipped && !added) setNotice("Already in your downloads.");
+    else if (skipped) setNotice(`Added ${added}. ${skipped} already in your downloads.`);
+    else setNotice(null);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 transition-colors">
-      {/* Header */}
-      <header className="p-4 flex justify-end">
-        <button
-          onClick={() => setDarkMode(!darkMode)}
-          className="p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-        >
-          {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-        </button>
-      </header>
+    <div className="flex min-h-dvh flex-col">
+      <Header theme={theme} onThemeChange={setTheme} />
 
-      {/* Main Content */}
-      <main className="container mx-auto px-4 pb-16">
-        {/* Hero Section */}
-        <div className="flex flex-col items-center pt-12 pb-12">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-3 bg-red-500 rounded-2xl">
-              <Youtube className="h-8 w-8 text-white" />
+      {/* Leave room for the fixed downloads dock so it never hides content. */}
+      <main className={`mx-auto w-full max-w-3xl flex-1 px-4 sm:px-6 ${downloads.items.length ? "pb-[55vh] sm:pb-40" : "pb-16"}`}>
+        <section className={`transition-[padding] duration-300 ${info || loading ? "pt-6 pb-8" : "pt-14 pb-10 sm:pt-24"}`}>
+          {!info && !loading && (
+            <div className="mb-8 text-center">
+              <h1 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Save any video for offline.</h1>
+              <p className="mx-auto mt-3 max-w-md text-[15px] text-pretty text-muted">
+                Paste a link to a video, Short or playlist. Pick a quality. That's it.
+              </p>
             </div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-              Video Downloader
-            </h1>
+          )}
+
+          <UrlForm onSubmit={lookup} onCancel={cancelLookup} loading={loading} />
+
+          <div className="mt-4 space-y-3 empty:hidden">
+            {error && (
+              <Alert
+                onDismiss={() => setError(null)}
+                action={
+                  error.retryable && (
+                    <button type="button" onClick={() => lookup(lastUrl.current)} className="font-semibold underline-offset-2 hover:underline">
+                      Retry
+                    </button>
+                  )
+                }
+              >
+                {error.message}
+              </Alert>
+            )}
+            {notice && <p className="text-center text-sm text-muted">{notice}</p>}
           </div>
-          <p className="text-gray-500 dark:text-gray-400 mb-8 text-center">
-            Download videos and playlists from supported sites in any quality
-          </p>
+        </section>
 
-          <UrlInput onSubmit={fetchInfo} loading={loading} />
+        {loading && <ResultSkeleton />}
 
-          {/* Error Message */}
-          {error && (
-            <div className="mt-4 flex items-center gap-2 text-red-500 bg-red-50 dark:bg-red-900/20 px-4 py-3 rounded-lg">
-              <AlertCircle className="h-5 w-5 flex-shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-        </div>
+        {info?.type === "video" && (
+          <VideoResult
+            key={info.id}
+            info={info}
+            onDownload={enqueue}
+            onSave={downloads.save}
+            onOpenPlaylist={lookup}
+            existing={downloads.byUrl.get(info.url)}
+          />
+        )}
+        {info?.type === "playlist" && <PlaylistResult key={info.id} playlist={info} onDownload={enqueue} byUrl={downloads.byUrl} />}
 
-        {/* Video/Playlist Display */}
-        <div className="flex flex-col items-center">
-          {videoInfo && !videoInfo.isPlaylist && (
-            <div className="w-full max-w-md">
-              <VideoCard video={videoInfo} />
-
-              <div className="mt-6 space-y-4">
-                <QualitySelect
-                  qualities={videoInfo.qualities}
-                  value={selectedQuality}
-                  onChange={setSelectedQuality}
-                />
-
-                <button
-                  onClick={() => startDownload(videoInfo.url, selectedQuality)}
-                  disabled={downloading}
-                  className="w-full py-4 bg-red-500 hover:bg-red-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white font-semibold rounded-xl transition-all disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {downloading ? (
-                    <>
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      <span>{downloadProgress}</span>
-                    </>
-                  ) : (
-                    <>
-                      <Download className="h-5 w-5" />
-                      <span>Download</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {videoInfo && videoInfo.isPlaylist && (
-            <PlaylistView
-              playlist={videoInfo}
-              onDownload={startDownload}
-              downloadingIds={downloadingIds}
-            />
-          )}
-        </div>
+        {!info && !loading && (
+          <ul className="grid gap-3 sm:grid-cols-3">
+            {FEATURES.map(({ Icon, title, text }) => (
+              <li key={title} className="rounded-xl border border-line bg-surface/60 p-4">
+                <Icon className="size-5 text-accent" aria-hidden="true" />
+                <p className="mt-3 text-sm font-semibold">{title}</p>
+                <p className="mt-0.5 text-sm text-muted">{text}</p>
+              </li>
+            ))}
+          </ul>
+        )}
       </main>
 
-      {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 p-4 text-center text-sm text-gray-400 dark:text-gray-500">
-        For personal use only
+      <footer className="px-4 pb-6 text-center text-xs text-muted">
+        For personal use only. Respect creators and copyright.
       </footer>
+
+      <DownloadsDock downloads={downloads} />
     </div>
   );
 }

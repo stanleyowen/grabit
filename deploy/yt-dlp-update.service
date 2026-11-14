@@ -1,0 +1,8 @@
+[Unit]
+Description=Update yt-dlp to the latest release (verified checksum)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/video-downloader/deploy/update-ytdlp.sh

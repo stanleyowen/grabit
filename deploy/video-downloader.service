@@ -1,0 +1,62 @@
+[Unit]
+Description=Video Downloader API
+Documentation=https://github.com/stanleyowen/youtube-downloader
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ytdl
+Group=ytdl
+WorkingDirectory=/opt/video-downloader/server
+EnvironmentFile=-/etc/video-downloader/env
+Environment=NODE_ENV=production
+Environment=HOME=/var/lib/video-downloader
+Environment=XDG_CACHE_HOME=/var/cache/video-downloader
+ExecStart=/usr/bin/node --max-old-space-size=512 src/index.js
+Restart=always
+RestartSec=3
+# App handles SIGTERM: stops accepting, kills yt-dlp process groups, cleans up.
+KillMode=mixed
+TimeoutStopSec=25
+
+StateDirectory=video-downloader
+StateDirectoryMode=0750
+CacheDirectory=video-downloader
+UMask=0027
+
+# --- Resource limits (tune to the box) ---
+LimitNOFILE=65536
+TasksMax=1024
+MemoryHigh=1536M
+MemoryMax=2G
+CPUWeight=80
+
+# --- Sandboxing ---
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/video-downloader /var/cache/video-downloader
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RemoveIPC=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target
