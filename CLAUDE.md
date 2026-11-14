@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Video downloader: a React SPA (`client/`) and a Node/Express API (`server/`) that wraps yt-dlp. They're separate npm projects (npm, not yarn) with no root package.json. Node >= 22.12.
+Grabit, a video downloader: a React SPA (`client/`) and a Node/Express API (`server/`) that wraps yt-dlp. They're separate npm projects (npm, not yarn) with no root package.json. Node >= 22.12.
 
 ## Commands
 
