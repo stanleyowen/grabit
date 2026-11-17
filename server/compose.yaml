@@ -1,0 +1,61 @@
+# Grabit API in a hardened container, for a host whose Cloudflare Tunnel points at 127.0.0.1:3003.
+#
+#   docker compose up -d --build        (from server/)
+#
+# yt-dlp and Deno are NOT baked into the image: they are mounted read-only from VD_BIN_DIR
+# (default ~/.local/opt/video-downloader/bin, the same place deploy/deploy-pm2.sh installs them),
+# so the daily update-ytdlp.sh cron keeps working without rebuilding the image.
+# Tunables come from the same files the PM2 setup uses (later wins); only the container-specific
+# paths and network settings are overridden below.
+name: grabit
+services:
+  api:
+    build: .
+    image: grabit:latest
+    container_name: grabit
+    init: true                    # reap orphaned yt-dlp/ffmpeg children
+    stop_grace_period: 25s        # graceful shutdown kills yt-dlp and cleans up
+    env_file:
+      - path: ${HOME}/.config/video-downloader/env
+        required: false
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3003"
+      # The tunnel reaches the container via the bridge gateway, not loopback, so the
+      # CF-Connecting-IP shortcut doesn't apply. Trusting only the gateway makes Express take the
+      # client IP from the X-Forwarded-For entry Cloudflare appends, which clients can't spoof.
+      TRUST_PROXY: "loopback, 172.30.53.1"
+      DOWNLOADS_DIR: /downloads
+      YTDLP_PATH: /opt/vd/bin/yt-dlp
+      YTDLP_JS_RUNTIME: deno:/opt/vd/bin/deno
+      XDG_CACHE_HOME: /cache
+      PATH: /opt/vd/bin:/usr/local/bin:/usr/bin:/bin
+    volumes:
+      - ${VD_BIN_DIR:-${HOME}/.local/opt/video-downloader/bin}:/opt/vd/bin:ro
+      - ${DOWNLOADS_HOST_DIR:-${HOME}/.local/share/video-downloader/downloads}:/downloads
+    tmpfs:
+      - /tmp:exec,size=1g        # yt-dlp is a PyInstaller binary: it unpacks and runs from /tmp
+      - /cache:size=256m
+    ports:
+      - "127.0.0.1:${HOST_PORT:-3003}:3003"
+    networks: [grabit]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 2g
+    cpus: 3
+    pids_limit: 1024
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  grabit:
+    ipam:
+      config:
+        - subnet: 172.30.53.0/24
+          gateway: 172.30.53.1
