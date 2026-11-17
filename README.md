@@ -149,6 +149,14 @@ The script:
 
 The app listens on `127.0.0.1:3003` only. Point your tunnel at it, and Grabit reads the real client IP from `CF-Connecting-IP`, which it only trusts from loopback.
 
+### Docker behind a Cloudflare Tunnel
+
+```bash
+cd server && docker compose up -d --build
+```
+
+`server/compose.yaml` runs the API as a non-root user with a read-only filesystem, no capabilities and memory/CPU/PID limits, published on `127.0.0.1:3003` only. yt-dlp and Deno are mounted read-only from `~/.local/opt/video-downloader/bin` (install them with `deploy/deploy-pm2.sh` or `deploy/update-ytdlp.sh`), so the daily yt-dlp update keeps working without rebuilding the image. Settings come from `~/.config/video-downloader/env` and `server/.env`, as with PM2. Because the tunnel reaches the container through the Docker bridge rather than loopback, the compose file trusts only the bridge gateway and the real client IP comes from `X-Forwarded-For`.
+
 ### systemd and nginx (root)
 
 ```bash
